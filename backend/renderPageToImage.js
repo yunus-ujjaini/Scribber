@@ -83,22 +83,40 @@ export async function renderPageToImage(text, filename, options = {}) {
   let page;
   try {
     const execPath = await chromium.executablePath();
+    console.log('Launching browser with executable:', execPath);
+    
     browser = await puppeteer.launch({
       headless: true,
-      args: ['--no-sandbox', '--disable-dev-shm-usage'],
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--no-first-run',
+        '--no-default-browser-check',
+        '--disable-extensions'
+      ],
       executablePath: execPath
     });
     
+    console.log('Browser launched successfully');
     page = await browser.newPage();
+    console.log('New page created');
+    
+    // Set viewport without waiting for navigation
     await page.setViewport({ width, height });
-    await page.setContent(html, { waitUntil: 'networkidle0' });
+    console.log('Viewport set');
+    
+    await page.setContent(html, { waitUntil: 'domcontentloaded' });
+    console.log('Content loaded');
     
     // Wait a bit for rendering to complete
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(1000);
     
     const element = await page.$('body');
     if (element) {
       await element.screenshot({ path: filename, omitBackground: false });
+      console.log('Screenshot saved to:', filename);
     } else {
       throw new Error('Failed to find body element');
     }
@@ -108,11 +126,19 @@ export async function renderPageToImage(text, filename, options = {}) {
     console.error('Error rendering page:', error);
     throw error;
   } finally {
-    if (page) {
-      await page.close().catch(() => {});
+    try {
+      if (page) {
+        await page.close().catch(() => {});
+      }
+    } catch (e) {
+      console.warn('Error closing page:', e.message);
     }
-    if (browser) {
-      await browser.close().catch(() => {});
+    try {
+      if (browser) {
+        await browser.close().catch(() => {});
+      }
+    } catch (e) {
+      console.warn('Error closing browser:', e.message);
     }
   }
 }
