@@ -10,6 +10,10 @@ import chromium from '@sparticuz/chromium';
  * @returns {Promise<string>} - Resolves to the image file path.
  */
 export async function renderPageToImage(text, filename, options = {}) {
+  console.log(`[renderPageToImage] Starting with filename: ${filename}`);
+  console.log(`[renderPageToImage] Text length: ${text.length} characters`);
+  console.log(`[renderPageToImage] Options:`, JSON.stringify(options));
+  
   // Accept pageNumber as an option
   const pageNumber = options.pageNumber || '';
   // Instagram post size: 1080x1080
@@ -23,6 +27,8 @@ export async function renderPageToImage(text, filename, options = {}) {
   const fontFamily = options.fontFamily || 'Ubuntu, DejaVu Sans, sans-serif';
   const background = options.background || '#fffbe9';
   const textColor = options.textColor || '#222';
+
+  console.log(`[renderPageToImage] Dimensions: ${width}x${height}, fontSize: ${fontSize}, margin: ${margin}`);
 
   const html = `
     <html>
@@ -81,11 +87,18 @@ export async function renderPageToImage(text, filename, options = {}) {
     </html>
   `;
 
+  console.log(`[renderPageToImage] HTML generated, length: ${html.length} characters`);
+
   let browser;
+  let page;
   try {
+    console.log('[renderPageToImage] Getting chromium executable path...');
     const execPath = await chromium.executablePath();
-    console.log('Launching browser with executable:', execPath);
+    console.log('[renderPageToImage] Chromium executable path:', execPath);
+    console.log('[renderPageToImage] Executable path type:', typeof execPath);
     
+    console.log('[renderPageToImage] Launching browser...');
+    const startTime = Date.now();
     browser = await puppeteer.launch({
       headless: true,
       args: [
@@ -102,39 +115,90 @@ export async function renderPageToImage(text, filename, options = {}) {
       executablePath: execPath,
       timeout: 30000
     });
+    const launchTime = Date.now() - startTime;
+    console.log(`[renderPageToImage] Browser launched successfully in ${launchTime}ms`);
     
-    console.log('Browser launched successfully');
-    const page = await browser.newPage();
-    console.log('New page created');
+    console.log('[renderPageToImage] Creating new page...');
+    const pageStartTime = Date.now();
+    page = await browser.newPage();
+    const pageTime = Date.now() - pageStartTime;
+    console.log(`[renderPageToImage] New page created in ${pageTime}ms`);
+    
+    console.log('[renderPageToImage] Setting page size...');
+    try {
+      await page.setDefaultNavigationTimeout(10000);
+      await page.setDefaultTimeout(10000);
+      console.log('[renderPageToImage] Timeouts set');
+    } catch (e) {
+      console.warn('[renderPageToImage] Warning setting timeouts:', e.message);
+    }
     
     // Do NOT call setViewport - it causes issues with chromium on Lambda
     // Instead, rely on viewport meta tag and CSS dimensions
     
-    await page.setContent(html, { waitUntil: 'domcontentloaded' });
-    console.log('Content loaded');
+    console.log('[renderPageToImage] Loading HTML content via goto with data URL...');
+    const dataUrl = `data:text/html;base64,${Buffer.from(html).toString('base64')}`;
+    console.log(`[renderPageToImage] Data URL created, length: ${dataUrl.length} characters`);
     
-    // Wait a bit for rendering to complete
+    const gotoStartTime = Date.now();
+    await page.goto(dataUrl, { waitUntil: 'domcontentloaded', timeout: 10000 });
+    const gotoTime = Date.now() - gotoStartTime;
+    console.log(`[renderPageToImage] Content loaded via goto in ${gotoTime}ms`);
+    
+    console.log('[renderPageToImage] Waiting for rendering to complete (1000ms)...');
     await page.waitForTimeout(1000);
+    console.log('[renderPageToImage] Rendering wait complete');
     
-    // Use page.screenshot with explicit clip instead of setViewport
-    await page.screenshot({ 
+    console.log('[renderPageToImage] Getting page dimensions...');
+    const dimensions = await page.evaluate(() => ({
+      windowWidth: window.innerWidth,
+      windowHeight: window.innerHeight,
+      documentWidth: document.documentElement.scrollWidth,
+      documentHeight: document.documentElement.scrollHeight,
+      bodyWidth: document.body.scrollWidth,
+      bodyHeight: document.body.scrollHeight
+    }));
+    console.log('[renderPageToImage] Page dimensions:', JSON.stringify(dimensions));
+    
+    console.log('[renderPageToImage] Taking screenshot...');
+    const screenshotStartTime = Date.now();
+    const result = await page.screenshot({ 
       path: filename, 
       omitBackground: false,
       clip: { x: 0, y: 0, width, height }
     });
-    console.log('Screenshot saved to:', filename);
+    const screenshotTime = Date.now() - screenshotStartTime;
+    console.log(`[renderPageToImage] Screenshot taken in ${screenshotTime}ms`);
+    console.log(`[renderPageToImage] Screenshot result:`, result ? `${result.length} bytes` : 'null');
+    console.log(`[renderPageToImage] Screenshot saved to: ${filename}`);
     
+    console.log('[renderPageToImage] Execution completed successfully');
     return filename;
   } catch (error) {
-    console.error('Error rendering page:', error);
+    console.error('[renderPageToImage] ERROR occurred:', error.message);
+    console.error('[renderPageToImage] Error stack:', error.stack);
+    console.error('[renderPageToImage] Error type:', error.constructor.name);
     throw error;
   } finally {
-    if (browser) {
+    console.log('[renderPageToImage] Cleaning up resources...');
+    if (page) {
       try {
-        await browser.close();
+        console.log('[renderPageToImage] Closing page...');
+        await page.close();
+        console.log('[renderPageToImage] Page closed successfully');
       } catch (e) {
-        console.warn('Error closing browser:', e.message);
+        console.warn('[renderPageToImage] Error closing page:', e.message);
       }
     }
+    if (browser) {
+      try {
+        console.log('[renderPageToImage] Closing browser...');
+        await browser.close();
+        console.log('[renderPageToImage] Browser closed successfully');
+      } catch (e) {
+        console.warn('[renderPageToImage] Error closing browser:', e.message);
+      }
+    }
+    console.log('[renderPageToImage] Cleanup complete');
   }
 }
