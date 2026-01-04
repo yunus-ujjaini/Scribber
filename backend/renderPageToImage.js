@@ -85,6 +85,6 @@ export async function renderPageToImage(text, filename, options = {}) {
   await page.setContent(html, { waitUntil: 'networkidle0' });
   const element = await page.$('body');
   await element.screenshot({ path: filename, omitBackground: false });
-  await browser.close();
+  // await browser.close();
   return filename;
 }
