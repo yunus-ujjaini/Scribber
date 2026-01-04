@@ -80,18 +80,39 @@ export async function renderPageToImage(text, filename, options = {}) {
   `;
 
   let browser;
+  let page;
   try {
-    browser = await puppeteer.launch({ headless: 'new', args: ['--no-sandbox'], executablePath: await chromium.executablePath() });
-    const page = await browser.newPage();
+    const execPath = await chromium.executablePath();
+    browser = await puppeteer.launch({
+      headless: true,
+      args: ['--no-sandbox', '--disable-dev-shm-usage'],
+      executablePath: execPath
+    });
+    
+    page = await browser.newPage();
     await page.setViewport({ width, height });
     await page.setContent(html, { waitUntil: 'networkidle0' });
+    
+    // Wait a bit for rendering to complete
+    await page.waitForTimeout(500);
+    
     const element = await page.$('body');
-    await element.screenshot({ path: filename, omitBackground: false });
-    await page.close();
+    if (element) {
+      await element.screenshot({ path: filename, omitBackground: false });
+    } else {
+      throw new Error('Failed to find body element');
+    }
+    
     return filename;
+  } catch (error) {
+    console.error('Error rendering page:', error);
+    throw error;
   } finally {
+    if (page) {
+      await page.close().catch(() => {});
+    }
     if (browser) {
-      await browser.close();
+      await browser.close().catch(() => {});
     }
   }
 }
