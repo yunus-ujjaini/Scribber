@@ -27,8 +27,10 @@ export async function renderPageToImage(text, filename, options = {}) {
   const html = `
     <html>
       <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=${width}, initial-scale=1.0">
         <style>
-          body {
+          html, body {
             width: ${width}px;
             height: ${height}px;
             margin: 0;
@@ -80,11 +82,11 @@ export async function renderPageToImage(text, filename, options = {}) {
   `;
 
   let browser;
-  let page;
   try {
     const execPath = await chromium.executablePath();
     browser = await puppeteer.launch({
       headless: true,
+<<<<<<< Updated upstream
       args: ['--no-sandbox', '--disable-dev-shm-usage'],
       executablePath: execPath
     });
@@ -92,27 +94,72 @@ export async function renderPageToImage(text, filename, options = {}) {
     page = await browser.newPage();
     await page.setViewport({ width, height });
     await page.setContent(html, { waitUntil: 'networkidle0' });
+=======
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--no-first-run',
+        '--no-default-browser-check',
+        '--disable-extensions',
+        '--disable-web-resources',
+        '--disable-component-update'
+      ],
+      executablePath: execPath,
+      timeout: 30000
+    });
+    
+    console.log('Browser launched successfully');
+    const page = await browser.newPage();
+    console.log('New page created');
+    
+    // Do NOT call setViewport - it causes issues with chromium on Lambda
+    // Instead, rely on viewport meta tag and CSS dimensions
+    
+    await page.setContent(html, { waitUntil: 'domcontentloaded' });
+    console.log('Content loaded');
+>>>>>>> Stashed changes
     
     // Wait a bit for rendering to complete
     await page.waitForTimeout(500);
     
+<<<<<<< Updated upstream
     const element = await page.$('body');
     if (element) {
       await element.screenshot({ path: filename, omitBackground: false });
     } else {
       throw new Error('Failed to find body element');
     }
+=======
+    // Use page.screenshot with explicit clip instead of setViewport
+    await page.screenshot({ 
+      path: filename, 
+      omitBackground: false,
+      clip: { x: 0, y: 0, width, height }
+    });
+    console.log('Screenshot saved to:', filename);
+>>>>>>> Stashed changes
     
     return filename;
   } catch (error) {
     console.error('Error rendering page:', error);
     throw error;
   } finally {
+<<<<<<< Updated upstream
     if (page) {
       await page.close().catch(() => {});
     }
     if (browser) {
       await browser.close().catch(() => {});
+=======
+    if (browser) {
+      try {
+        await browser.close();
+      } catch (e) {
+        console.warn('Error closing browser:', e.message);
+      }
+>>>>>>> Stashed changes
     }
   }
 }
