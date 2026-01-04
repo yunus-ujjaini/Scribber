@@ -186,7 +186,7 @@ export async function renderPageToImage(text, filename, options = {}) {
     }
     
     console.log('[renderPageToImage] Waiting for rendering to complete (500ms)...');
-    await page.waitForTimeout(500);
+      await new Promise(resolve => setTimeout(resolve, 500));
     console.log('[renderPageToImage] Rendering wait complete');
     
     console.log('[renderPageToImage] Getting page dimensions...');
