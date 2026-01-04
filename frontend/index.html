@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Scribber Agent</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="container">
+    <h1>Scribber Agent</h1>
+    <form id="storyForm">
+      <label>Era / Culture / Tradition:
+        <input type="text" name="ERA_OR_CULTURE" required />
+      </label>
+      <label>Specific Story / Character:
+        <input type="text" name="STORY_OR_CHARACTER" />
+      </label>
+      <label>Hook Style:
+        <select name="hookStyle">
+          <option value="mysterious">Mysterious</option>
+          <option value="prophetic">Prophetic</option>
+          <option value="ominous">Ominous</option>
+        </select>
+      </label>
+      <label>Darkness Level:
+        <select name="darknessLevel">
+          <option value="subtle">Subtle</option>
+          <option value="tragic">Tragic</option>
+          <option value="grim">Grim</option>
+        </select>
+      </label>
+      <label>Dialogue Density:
+        <select name="dialogueDensity">
+          <option value="low">Low</option>
+          <option value="medium">Medium</option>
+          <option value="high">High</option>
+        </select>
+      </label>
+      <label>Moral Explicitness:
+        <select name="moralExplicitness">
+          <option value="implicit">Implicit</option>
+          <option value="clearly stated">Clearly Stated</option>
+        </select>
+      </label>
+      <button type="submit">Generate Story</button>
+    </form>
+    <div id="loading" style="display:none;">Generating story...</div>
+    <div id="styleControls" style="display:none; margin-top:24px;">
+      <label>Font Family:
+        <select id="fontFamily">
+          <option value="Ubuntu, DejaVu Sans, sans-serif">Ubuntu / DejaVu Sans</option>
+          <option value="Georgia, serif">Georgia</option>
+          <option value="Arial, Helvetica, sans-serif">Arial</option>
+          <option value="Courier New, monospace">Courier New</option>
+        </select>
+      </label>
+      <label>Font Color:
+        <input type="color" id="fontColor" value="#222222" />
+      </label>
+      <label>Background Color:
+        <input type="color" id="backgroundColor" value="#fffbe9" />
+      </label>
+      <button id="rerenderBtn" type="button">Rerender Images</button>
+      <div style="margin-top:16px;">
+        <input type="email" id="emailAddress" placeholder="Enter Gmail address" style="width: 220px;" />
+        <button id="sendEmailBtn" type="button">Send Images to Gmail</button>
+      </div>
+    </div>
+    <div id="result"></div>
+  </div>
+  <script src="script.js"></script>
+</body>
+</html>
