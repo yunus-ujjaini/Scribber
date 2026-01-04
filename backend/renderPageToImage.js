@@ -125,6 +125,7 @@ export async function renderPageToImage(text, filename, options = {}) {
     await page.waitForTimeout(500);
     
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
     const element = await page.$('body');
     if (element) {
       await element.screenshot({ path: filename, omitBackground: false });
@@ -132,6 +133,8 @@ export async function renderPageToImage(text, filename, options = {}) {
       throw new Error('Failed to find body element');
     }
 =======
+=======
+>>>>>>> Stashed changes
     // Use page.screenshot with explicit clip instead of setViewport
     await page.screenshot({ 
       path: filename, 
@@ -139,6 +142,9 @@ export async function renderPageToImage(text, filename, options = {}) {
       clip: { x: 0, y: 0, width, height }
     });
     console.log('Screenshot saved to:', filename);
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
 >>>>>>> Stashed changes
     
     return filename;
@@ -147,18 +153,24 @@ export async function renderPageToImage(text, filename, options = {}) {
     throw error;
   } finally {
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
     if (page) {
       await page.close().catch(() => {});
     }
     if (browser) {
       await browser.close().catch(() => {});
 =======
+=======
+>>>>>>> Stashed changes
     if (browser) {
       try {
         await browser.close();
       } catch (e) {
         console.warn('Error closing browser:', e.message);
       }
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
 >>>>>>> Stashed changes
     }
   }
