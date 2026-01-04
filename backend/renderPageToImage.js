@@ -2,6 +2,47 @@
 import puppeteer, { executablePath } from 'puppeteer-core';
 import chromium from '@sparticuz/chromium';
 
+// Global browser instance for reuse (helps with cold starts)
+let cachedBrowser = null;
+
+async function getBrowser() {
+  console.log('[getBrowser] Checking for cached browser instance...');
+  
+  if (cachedBrowser && cachedBrowser.isConnected && cachedBrowser.isConnected()) {
+    console.log('[getBrowser] Reusing cached browser instance');
+    return cachedBrowser;
+  }
+  
+  console.log('[getBrowser] No valid cached browser, launching new instance...');
+  const execPath = await chromium.executablePath();
+  console.log('[getBrowser] Chromium executable path:', execPath);
+  
+  cachedBrowser = await puppeteer.launch({
+    headless: true,
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-gpu',
+      '--single-process',
+      '--no-first-run',
+      '--no-default-browser-check',
+      '--disable-extensions',
+      '--disable-web-resources',
+      '--disable-component-update',
+      '--disable-sync',
+      '--disable-default-apps',
+      '--disable-preconnect'
+    ],
+    executablePath: execPath,
+    timeout: 60000,
+    protocolTimeout: 180000
+  });
+  
+  console.log('[getBrowser] New browser instance launched');
+  return cachedBrowser;
+}
+
 /**
  * Render a single story page as an image using Puppeteer and save to disk.
  * @param {string} text - The text to render.
@@ -92,31 +133,11 @@ export async function renderPageToImage(text, filename, options = {}) {
   let browser;
   let page;
   try {
-    console.log('[renderPageToImage] Getting chromium executable path...');
-    const execPath = await chromium.executablePath();
-    console.log('[renderPageToImage] Chromium executable path:', execPath);
-    console.log('[renderPageToImage] Executable path type:', typeof execPath);
-    
-    console.log('[renderPageToImage] Launching browser...');
-    const startTime = Date.now();
-    browser = await puppeteer.launch({
-      headless: true,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-gpu',
-        '--no-first-run',
-        '--no-default-browser-check',
-        '--disable-extensions',
-        '--disable-web-resources',
-        '--disable-component-update'
-      ],
-      executablePath: execPath,
-      timeout: 30000
-    });
-    const launchTime = Date.now() - startTime;
-    console.log(`[renderPageToImage] Browser launched successfully in ${launchTime}ms`);
+    console.log('[renderPageToImage] Getting browser instance...');
+    const browserStartTime = Date.now();
+    browser = await getBrowser();
+    const browserTime = Date.now() - browserStartTime;
+    console.log(`[renderPageToImage] Browser instance obtained in ${browserTime}ms`);
     
     console.log('[renderPageToImage] Creating new page...');
     const pageStartTime = Date.now();
@@ -124,16 +145,28 @@ export async function renderPageToImage(text, filename, options = {}) {
     const pageTime = Date.now() - pageStartTime;
     console.log(`[renderPageToImage] New page created in ${pageTime}ms`);
     
-    console.log('[renderPageToImage] Setting page size...');
+    console.log('[renderPageToImage] Configuring page...');
     try {
-      await page.setDefaultNavigationTimeout(10000);
-      await page.setDefaultTimeout(10000);
-      console.log('[renderPageToImage] Timeouts set');
+      await page.setDefaultNavigationTimeout(30000);
+      await page.setDefaultTimeout(30000);
+      console.log('[renderPageToImage] Page timeouts configured');
     } catch (e) {
       console.warn('[renderPageToImage] Warning setting timeouts:', e.message);
     }
     
-    // Do NOT call setViewport - it causes issues with chromium on Lambda
+    console.log('[renderPageToImage] Disabling resource loading for performance...');
+    await page.on('request', (request) => {
+      const resourceType = request.resourceType();
+      // Block images, stylesheets, fonts - we only need DOM rendering
+      if (['image', 'stylesheet', 'font', 'media', 'fetch', 'xhr', 'websocket'].includes(resourceType)) {
+        console.log(`[renderPageToImage] Blocking ${resourceType}: ${request.url().substring(0, 50)}`);
+        request.abort('blockedbyclient').catch(() => {});
+      } else {
+        request.continue().catch(() => {});
+      }
+    });
+    
+    // Do NOT call setViewport - it causes issues with chromium on Lambda/Vercel
     // Instead, rely on viewport meta tag and CSS dimensions
     
     console.log('[renderPageToImage] Loading HTML content via goto with data URL...');
@@ -141,24 +174,35 @@ export async function renderPageToImage(text, filename, options = {}) {
     console.log(`[renderPageToImage] Data URL created, length: ${dataUrl.length} characters`);
     
     const gotoStartTime = Date.now();
-    await page.goto(dataUrl, { waitUntil: 'domcontentloaded', timeout: 10000 });
-    const gotoTime = Date.now() - gotoStartTime;
-    console.log(`[renderPageToImage] Content loaded via goto in ${gotoTime}ms`);
+    try {
+      await Promise.race([
+        page.goto(dataUrl, { waitUntil: 'domcontentloaded', timeout: 20000 }),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('goto timeout')), 25000))
+      ]);
+      const gotoTime = Date.now() - gotoStartTime;
+      console.log(`[renderPageToImage] Content loaded via goto in ${gotoTime}ms`);
+    } catch (gotoErr) {
+      console.warn(`[renderPageToImage] goto failed: ${gotoErr.message}, attempting screenshot anyway...`);
+    }
     
-    console.log('[renderPageToImage] Waiting for rendering to complete (1000ms)...');
-    await page.waitForTimeout(1000);
+    console.log('[renderPageToImage] Waiting for rendering to complete (500ms)...');
+    await page.waitForTimeout(500);
     console.log('[renderPageToImage] Rendering wait complete');
     
     console.log('[renderPageToImage] Getting page dimensions...');
-    const dimensions = await page.evaluate(() => ({
-      windowWidth: window.innerWidth,
-      windowHeight: window.innerHeight,
-      documentWidth: document.documentElement.scrollWidth,
-      documentHeight: document.documentElement.scrollHeight,
-      bodyWidth: document.body.scrollWidth,
-      bodyHeight: document.body.scrollHeight
-    }));
-    console.log('[renderPageToImage] Page dimensions:', JSON.stringify(dimensions));
+    try {
+      const dimensions = await page.evaluate(() => ({
+        windowWidth: window.innerWidth,
+        windowHeight: window.innerHeight,
+        documentWidth: document.documentElement.scrollWidth,
+        documentHeight: document.documentElement.scrollHeight,
+        bodyWidth: document.body.scrollWidth,
+        bodyHeight: document.body.scrollHeight
+      }));
+      console.log('[renderPageToImage] Page dimensions:', JSON.stringify(dimensions));
+    } catch (dimErr) {
+      console.warn('[renderPageToImage] Failed to get dimensions:', dimErr.message);
+    }
     
     console.log('[renderPageToImage] Taking screenshot...');
     const screenshotStartTime = Date.now();
@@ -168,8 +212,7 @@ export async function renderPageToImage(text, filename, options = {}) {
       clip: { x: 0, y: 0, width, height }
     });
     const screenshotTime = Date.now() - screenshotStartTime;
-    console.log(`[renderPageToImage] Screenshot taken in ${screenshotTime}ms`);
-    console.log(`[renderPageToImage] Screenshot result:`, result ? `${result.length} bytes` : 'null');
+    console.log(`[renderPageToImage] Screenshot taken in ${screenshotTime}ms, ${result.length} bytes`);
     console.log(`[renderPageToImage] Screenshot saved to: ${filename}`);
     
     console.log('[renderPageToImage] Execution completed successfully');
@@ -178,25 +221,22 @@ export async function renderPageToImage(text, filename, options = {}) {
     console.error('[renderPageToImage] ERROR occurred:', error.message);
     console.error('[renderPageToImage] Error stack:', error.stack);
     console.error('[renderPageToImage] Error type:', error.constructor.name);
+    
+    // Invalidate cached browser on fatal errors
+    if (error.message && (error.message.includes('session') || error.message.includes('browser'))) {
+      console.error('[renderPageToImage] Fatal browser error, clearing cache');
+      cachedBrowser = null;
+    }
+    
     throw error;
   } finally {
-    console.log('[renderPageToImage] Cleaning up resources...');
+    console.log('[renderPageToImage] Cleaning up page...');
     if (page) {
       try {
-        console.log('[renderPageToImage] Closing page...');
         await page.close();
         console.log('[renderPageToImage] Page closed successfully');
       } catch (e) {
         console.warn('[renderPageToImage] Error closing page:', e.message);
-      }
-    }
-    if (browser) {
-      try {
-        console.log('[renderPageToImage] Closing browser...');
-        await browser.close();
-        console.log('[renderPageToImage] Browser closed successfully');
-      } catch (e) {
-        console.warn('[renderPageToImage] Error closing browser:', e.message);
       }
     }
     console.log('[renderPageToImage] Cleanup complete');

@@ -17,7 +17,7 @@ document.getElementById('sendEmailBtn').addEventListener('click', async function
       if (lastStoryData.ERA_OR_CULTURE) emailPayload.ERA_OR_CULTURE = lastStoryData.ERA_OR_CULTURE;
       if (lastStoryData.STORY_OR_CHARACTER) emailPayload.STORY_OR_CHARACTER = lastStoryData.STORY_OR_CHARACTER;
     }
-    const response = await fetch('https://scribber-two.vercel.app/api/send-images-email', {
+    const response = await fetch('https://scribber.onrender.com/api/send-images-email', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(emailPayload)
@@ -48,7 +48,7 @@ document.getElementById('storyForm').addEventListener('submit', async function(e
   const data = Object.fromEntries(formData.entries());
 
   try {
-    const response = await fetch('https://scribber-two.vercel.app/api/story', {
+    const response = await fetch('https://scribber.onrender.com/api/story', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data)
@@ -94,7 +94,7 @@ document.getElementById('rerenderBtn').addEventListener('click', async function(
   // Call new API endpoint to rerender images with style options
   document.getElementById('loading').style.display = 'block';
   try {
-    const response = await fetch('https://scribber-two.vercel.app/api/rerender-images', {
+    const response = await fetch('https://scribber.onrender.com/api/rerender-images', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
