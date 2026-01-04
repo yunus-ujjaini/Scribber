@@ -79,12 +79,19 @@ export async function renderPageToImage(text, filename, options = {}) {
     </html>
   `;
 
-  const browser = await puppeteer.launch({ headless: 'new', args: ['--no-sandbox'], executablePath: await chromium.executablePath() });
-  const page = await browser.newPage();
-  await page.setViewport({ width, height });
-  await page.setContent(html, { waitUntil: 'networkidle0' });
-  const element = await page.$('body');
-  await element.screenshot({ path: filename, omitBackground: false });
-  // await browser.close();
-  return filename;
+  let browser;
+  try {
+    browser = await puppeteer.launch({ headless: 'new', args: ['--no-sandbox'], executablePath: await chromium.executablePath() });
+    const page = await browser.newPage();
+    await page.setViewport({ width, height });
+    await page.setContent(html, { waitUntil: 'networkidle0' });
+    const element = await page.$('body');
+    await element.screenshot({ path: filename, omitBackground: false });
+    await page.close();
+    return filename;
+  } finally {
+    if (browser) {
+      await browser.close();
+    }
+  }
 }
