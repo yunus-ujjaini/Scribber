@@ -1,6 +1,6 @@
 
-import puppeteer from 'puppeteer';
-import fs from 'fs';
+import puppeteer, { executablePath } from 'puppeteer-core';
+import chromium from '@sparticuz/chromium';
 
 /**
  * Render a single story page as an image using Puppeteer and save to disk.
@@ -79,7 +79,7 @@ export async function renderPageToImage(text, filename, options = {}) {
     </html>
   `;
 
-  const browser = await puppeteer.launch({ headless: 'new', args: ['--no-sandbox'] });
+  const browser = await puppeteer.launch({ headless: 'new', args: ['--no-sandbox'], executablePath: await chromium.executablePath() });
   const page = await browser.newPage();
   await page.setViewport({ width, height });
   await page.setContent(html, { waitUntil: 'networkidle0' });
