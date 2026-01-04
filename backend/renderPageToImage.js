@@ -107,7 +107,9 @@ export async function renderPageToImage(text, filename, options = {}) {
     await page.setViewport({ width, height });
     console.log('Viewport set');
     
-    await page.setContent(html, { waitUntil: 'domcontentloaded' });
+    // Use goto with data URL instead of setContent to avoid frame timing issues
+    const dataUrl = `data:text/html;base64,${Buffer.from(html).toString('base64')}`;
+    await page.goto(dataUrl, { waitUntil: 'domcontentloaded', timeout: 10000 });
     console.log('Content loaded');
     
     // Wait a bit for rendering to complete
