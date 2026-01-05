@@ -198,15 +198,54 @@ app.post('/api/send-images-email', async (req, res) => {
     return res.status(400).json({ error: 'Invalid email or no images.' });
   }
   try {
+    console.log('[send-images-email] Request received');
+    console.log('[send-images-email] email:', email);
+    console.log('[send-images-email] imagePaths length:', imagePaths.length);
+    console.log('[send-images-email] first image (if any):', imagePaths[0] || 'none');
+    console.log('[send-images-email] env GMAIL_USER present:', !!process.env.GMAIL_USER);
+    console.log('[send-images-email] env GMAIL_PASS present:', !!process.env.GMAIL_PASS);
+
     // Create a zip file in memory
     const archive = archiver('zip', { zlib: { level: 9 } });
     const zipChunks = [];
     archive.on('data', chunk => zipChunks.push(chunk));
+    archive.on('warning', (warn) => {
+      console.warn('[send-images-email][archiver] warning:', warn && warn.message ? warn.message : warn);
+    });
+    archive.on('error', (aerr) => {
+      console.error('[send-images-email][archiver] error:', aerr && aerr.message ? aerr.message : aerr);
+    });
+    archive.on('end', () => {
+      console.log('[send-images-email][archiver] archive end event');
+    });
+    archive.on('finish', () => {
+      console.log('[send-images-email][archiver] archive finish event');
+    });
     for (const imgPath of imagePaths) {
+      console.log('[send-images-email] adding file to archive:', imgPath);
       archive.file(imgPath, { name: imgPath.split('/').pop() });
     }
-    await archive.finalize();
+    // Wait for archive to finalize (resolve on 'end' or 'finish')
+    const finalizePromise = new Promise((resolve, reject) => {
+      archive.on('error', reject);
+      archive.on('end', resolve);
+      archive.on('finish', resolve);
+    });
+    archive.finalize();
+    await finalizePromise;
     const zipBuffer = Buffer.concat(zipChunks);
+    console.log('[send-images-email] zipBuffer length:', zipBuffer.length);
+
+    // Optionally save debug copy of the zip when DEBUG_SAVE_ZIP=true
+    try {
+      if (process.env.DEBUG_SAVE_ZIP === 'true') {
+        const debugPath = path.join(__dirname, 'debug_last_images.zip');
+        await fs.promises.writeFile(debugPath, zipBuffer);
+        console.log('[send-images-email] Saved debug zip to:', debugPath);
+      }
+    } catch (saveErr) {
+      console.warn('[send-images-email] Could not save debug zip:', saveErr.message);
+    }
 
     // Use provided parameters to name the zip file
     let { ERA_OR_CULTURE, STORY_OR_CHARACTER } = req.body;
@@ -233,21 +272,39 @@ app.post('/api/send-images-email', async (req, res) => {
         pass: process.env.GMAIL_PASS
       }
     });
-    await transporter.sendMail({
-      from: process.env.GMAIL_USER,
-      to: email,
-      subject: 'Your Scribber Story Images',
-      text: 'Attached is a zip file containing your generated story images from Scribber.',
-      attachments: [
-        {
-          filename: zipFilename,
-          content: zipBuffer
-        }
-      ]
-    });
-    res.json({ success: true });
+    // Verify transporter connection/configuration before sending
+    try {
+      console.log('[send-images-email] Verifying transporter...');
+      const verified = await transporter.verify();
+      console.log('[send-images-email] transporter.verify result:', verified);
+    } catch (verifyErr) {
+      console.warn('[send-images-email] transporter.verify failed:', verifyErr && verifyErr.message ? verifyErr.message : verifyErr);
+    }
+
+    try {
+      console.log('[send-images-email] Sending mail...');
+      const info = await transporter.sendMail({
+        from: process.env.GMAIL_USER,
+        to: email,
+        subject: 'Your Scribber Story Images',
+        text: 'Attached is a zip file containing your generated story images from Scribber.',
+        attachments: [
+          {
+            filename: zipFilename,
+            content: zipBuffer
+          }
+        ]
+      });
+      console.log('[send-images-email] sendMail info:', info);
+      res.json({ success: true, info });
+    } catch (sendErr) {
+      console.error('[send-images-email] sendMail failed:', sendErr && sendErr.message ? sendErr.message : sendErr);
+      // Expose minimal error to client but log full stack
+      res.status(500).json({ error: 'Failed to send email. Check server logs.' });
+    }
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('[send-images-email] ERROR:', err && err.stack ? err.stack : err);
+    res.status(500).json({ error: err.message || 'Unknown error' });
   }
 });
 
