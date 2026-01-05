@@ -6,6 +6,8 @@ import bodyParser from 'body-parser';
 import { GoogleGenAI } from "@google/genai";
 import path from 'path';
 import fs from 'fs';
+import dns from 'dns';
+import net from 'net';
 import { fileURLToPath } from 'url';
 import { renderPageToImage } from './renderPageToImage.js';
 import { postToInstagram } from './instagram.js';
@@ -264,12 +266,55 @@ app.post('/api/send-images-email', async (req, res) => {
     else base = 'scribber';
     const zipFilename = `${base}_story_images.zip`;
 
-    // Configure nodemailer with Gmail SMTP
+    // Perform SMTP connectivity checks before creating transporter
+    const smtpHost = 'smtp.gmail.com';
+    const smtpPort = 465; // SSL
+    try {
+      console.log('[send-images-email] Resolving SMTP host:', smtpHost);
+      const addr = await new Promise((resolve, reject) => dns.lookup(smtpHost, (err, address) => err ? reject(err) : resolve(address)));
+      console.log('[send-images-email] SMTP DNS resolved to:', addr);
+    } catch (dnsErr) {
+      console.warn('[send-images-email] DNS lookup failed for smtp host:', dnsErr && dnsErr.message ? dnsErr.message : dnsErr);
+    }
+
+    try {
+      console.log('[send-images-email] Attempting TCP connect to SMTP host:', smtpHost, smtpPort);
+      await new Promise((resolve, reject) => {
+        const socket = net.connect({ host: smtpHost, port: smtpPort }, () => {
+          socket.end();
+          resolve(true);
+        });
+        socket.setTimeout(8000);
+        socket.on('timeout', () => {
+          socket.destroy();
+          reject(new Error('TCP connect timeout'));
+        });
+        socket.on('error', (e) => {
+          reject(e);
+        });
+      });
+      console.log('[send-images-email] TCP connect to SMTP host succeeded');
+    } catch (tcpErr) {
+      console.warn('[send-images-email] TCP connect to SMTP host failed:', tcpErr && tcpErr.message ? tcpErr.message : tcpErr);
+    }
+
+    // Configure nodemailer with explicit SMTP settings and verbose debug
     const transporter = nodemailer.createTransport({
-      service: 'gmail',
+      host: smtpHost,
+      port: smtpPort,
+      secure: true,
       auth: {
         user: process.env.GMAIL_USER,
         pass: process.env.GMAIL_PASS
+      },
+      pool: true,
+      logger: true,
+      debug: true,
+      connectionTimeout: 30000,
+      greetingTimeout: 30000,
+      socketTimeout: 30000,
+      tls: {
+        rejectUnauthorized: false
       }
     });
     // Verify transporter connection/configuration before sending
