@@ -1,14 +1,11 @@
-import nodemailer from 'nodemailer';
-import archiver from 'archiver';
 import dotenv from 'dotenv';
 import express from 'express';
 import bodyParser from 'body-parser';
 import { GoogleGenAI } from "@google/genai";
 import path from 'path';
 import fs from 'fs';
-import dns from 'dns';
-import net from 'net';
 import { fileURLToPath } from 'url';
+import archiver from 'archiver';
 import { renderPageToImage } from './renderPageToImage.js';
 import { postToInstagram } from './instagram.js';
 import glob from 'glob';
@@ -193,165 +190,55 @@ app.post('/api/rerender-images', async (req, res) => {
   }
 });
 
-// Send images to Gmail endpoint
-app.post('/api/send-images-email', async (req, res) => {
-  const { email, imagePaths } = req.body;
-  if (!email || !email.includes('@gmail.com') || !Array.isArray(imagePaths) || imagePaths.length === 0) {
-    return res.status(400).json({ error: 'Invalid email or no images.' });
-  }
+// Download images as zip endpoint
+app.get('/api/download-images', async (req, res) => {
   try {
-    console.log('[send-images-email] Request received');
-    console.log('[send-images-email] email:', email);
-    console.log('[send-images-email] imagePaths length:', imagePaths.length);
-    console.log('[send-images-email] first image (if any):', imagePaths[0] || 'none');
-    console.log('[send-images-email] env GMAIL_USER present:', !!process.env.GMAIL_USER);
-    console.log('[send-images-email] env GMAIL_PASS present:', !!process.env.GMAIL_PASS);
+    // Find all story page images in the backend directory
+    const imageGlob = path.join(__dirname, 'story_page_*.png');
+    const imagePaths = await new Promise((resolve, reject) => {
+      glob(imageGlob, (err, files) => err ? reject(err) : resolve(files));
+    });
+
+    if (imagePaths.length === 0) {
+      return res.status(400).json({ error: 'No story images found. Generate a story first.' });
+    }
 
     // Create a zip file in memory
     const archive = archiver('zip', { zlib: { level: 9 } });
     const zipChunks = [];
+
     archive.on('data', chunk => zipChunks.push(chunk));
-    archive.on('warning', (warn) => {
-      console.warn('[send-images-email][archiver] warning:', warn && warn.message ? warn.message : warn);
+    archive.on('error', (err) => {
+      console.error('[download-images] Archive error:', err.message);
+      res.status(500).json({ error: 'Failed to create zip file.' });
     });
-    archive.on('error', (aerr) => {
-      console.error('[send-images-email][archiver] error:', aerr && aerr.message ? aerr.message : aerr);
-    });
-    archive.on('end', () => {
-      console.log('[send-images-email][archiver] archive end event');
-    });
-    archive.on('finish', () => {
-      console.log('[send-images-email][archiver] archive finish event');
-    });
+
+    // Add all images to the zip
     for (const imgPath of imagePaths) {
-      console.log('[send-images-email] adding file to archive:', imgPath);
-      archive.file(imgPath, { name: imgPath.split('/').pop() });
+      const filename = path.basename(imgPath);
+      archive.file(imgPath, { name: filename });
     }
-    // Wait for archive to finalize (resolve on 'end' or 'finish')
-    const finalizePromise = new Promise((resolve, reject) => {
-      archive.on('error', reject);
+
+    // Finalize and wait for completion
+    archive.finalize();
+    
+    await new Promise((resolve, reject) => {
       archive.on('end', resolve);
       archive.on('finish', resolve);
+      archive.on('error', reject);
     });
-    archive.finalize();
-    await finalizePromise;
+
     const zipBuffer = Buffer.concat(zipChunks);
-    console.log('[send-images-email] zipBuffer length:', zipBuffer.length);
 
-    // Optionally save debug copy of the zip when DEBUG_SAVE_ZIP=true
-    try {
-      if (process.env.DEBUG_SAVE_ZIP === 'true') {
-        const debugPath = path.join(__dirname, 'debug_last_images.zip');
-        await fs.promises.writeFile(debugPath, zipBuffer);
-        console.log('[send-images-email] Saved debug zip to:', debugPath);
-      }
-    } catch (saveErr) {
-      console.warn('[send-images-email] Could not save debug zip:', saveErr.message);
-    }
-
-    // Use provided parameters to name the zip file
-    let { ERA_OR_CULTURE, STORY_OR_CHARACTER } = req.body;
-    function sanitize(str) {
-      return (typeof str === 'string' ? str.trim() : '').replace(/[^a-zA-Z0-9_\-]+/g, '_').replace(/^_+|_+$/g, '');
-    }
-    // Try to get values from req.body if not present directly
-    if (!ERA_OR_CULTURE && req.body.eraOrCulture) ERA_OR_CULTURE = req.body.eraOrCulture;
-    if (!STORY_OR_CHARACTER && req.body.storyOrCharacter) STORY_OR_CHARACTER = req.body.storyOrCharacter;
-    const era = sanitize(ERA_OR_CULTURE);
-    const character = sanitize(STORY_OR_CHARACTER);
-    let base = '';
-    if (era && character) base = `${era}_${character}`;
-    else if (era) base = era;
-    else if (character) base = character;
-    else base = 'scribber';
-    const zipFilename = `${base}_story_images.zip`;
-
-    // Perform SMTP connectivity checks before creating transporter
-    const smtpHost = 'smtp.gmail.com';
-    const smtpPort = 465; // SSL
-    try {
-      console.log('[send-images-email] Resolving SMTP host:', smtpHost);
-      const addr = await new Promise((resolve, reject) => dns.lookup(smtpHost, (err, address) => err ? reject(err) : resolve(address)));
-      console.log('[send-images-email] SMTP DNS resolved to:', addr);
-    } catch (dnsErr) {
-      console.warn('[send-images-email] DNS lookup failed for smtp host:', dnsErr && dnsErr.message ? dnsErr.message : dnsErr);
-    }
-
-    try {
-      console.log('[send-images-email] Attempting TCP connect to SMTP host:', smtpHost, smtpPort);
-      await new Promise((resolve, reject) => {
-        const socket = net.connect({ host: smtpHost, port: smtpPort }, () => {
-          socket.end();
-          resolve(true);
-        });
-        socket.setTimeout(8000);
-        socket.on('timeout', () => {
-          socket.destroy();
-          reject(new Error('TCP connect timeout'));
-        });
-        socket.on('error', (e) => {
-          reject(e);
-        });
-      });
-      console.log('[send-images-email] TCP connect to SMTP host succeeded');
-    } catch (tcpErr) {
-      console.warn('[send-images-email] TCP connect to SMTP host failed:', tcpErr && tcpErr.message ? tcpErr.message : tcpErr);
-    }
-
-    // Configure nodemailer with explicit SMTP settings and verbose debug
-    const transporter = nodemailer.createTransport({
-      host: smtpHost,
-      port: smtpPort,
-      secure: true,
-      auth: {
-        user: process.env.GMAIL_USER,
-        pass: process.env.GMAIL_PASS
-      },
-      pool: true,
-      logger: true,
-      debug: true,
-      connectionTimeout: 30000,
-      greetingTimeout: 30000,
-      socketTimeout: 30000,
-      tls: {
-        rejectUnauthorized: false
-      }
-    });
-    // Verify transporter connection/configuration before sending
-    try {
-      console.log('[send-images-email] Verifying transporter...');
-      const verified = await transporter.verify();
-      console.log('[send-images-email] transporter.verify result:', verified);
-    } catch (verifyErr) {
-      console.warn('[send-images-email] transporter.verify failed:', verifyErr && verifyErr.message ? verifyErr.message : verifyErr);
-    }
-
-    try {
-      console.log('[send-images-email] Sending mail...');
-      const info = await transporter.sendMail({
-        from: process.env.GMAIL_USER,
-        to: email,
-        subject: 'Your Scribber Story Images',
-        text: 'Attached is a zip file containing your generated story images from Scribber.',
-        attachments: [
-          {
-            filename: zipFilename,
-            content: zipBuffer
-          }
-        ]
-      });
-      console.log('[send-images-email] sendMail info:', info);
-      res.json({ success: true, info });
-    } catch (sendErr) {
-      console.error('[send-images-email] sendMail failed:', sendErr && sendErr.message ? sendErr.message : sendErr);
-      // Expose minimal error to client but log full stack
-      res.status(500).json({ error: 'Failed to send email. Check server logs.' });
-    }
+    // Send zip file as response
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', 'attachment; filename="story_images.zip"');
+    res.send(zipBuffer);
   } catch (err) {
-    console.error('[send-images-email] ERROR:', err && err.stack ? err.stack : err);
-    res.status(500).json({ error: err.message || 'Unknown error' });
+    console.error('[download-images] Error:', err.message);
+    res.status(500).json({ error: 'Failed to download images.' });
   }
-});
+})
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);

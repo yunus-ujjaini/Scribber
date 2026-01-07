@@ -1,37 +1,26 @@
-// Send images to Gmail
-document.getElementById('sendEmailBtn').addEventListener('click', async function() {
+// Download images as zip
+document.getElementById('downloadBtn').addEventListener('click', async function() {
   if (!lastStoryResult || !lastStoryResult.imagePaths || lastStoryResult.imagePaths.length === 0) return;
-  const email = document.getElementById('emailAddress').value.trim();
-  if (!email || !email.includes('@gmail.com')) {
-    alert('Please enter a valid Gmail address.');
-    return;
-  }
-  document.getElementById('loading').style.display = 'block';
   try {
-    // Also send era/culture and story/character for zip filename
-    const emailPayload = {
-      email,
-      imagePaths: lastStoryResult.imagePaths
-    };
-    if (lastStoryData) {
-      if (lastStoryData.ERA_OR_CULTURE) emailPayload.ERA_OR_CULTURE = lastStoryData.ERA_OR_CULTURE;
-      if (lastStoryData.STORY_OR_CHARACTER) emailPayload.STORY_OR_CHARACTER = lastStoryData.STORY_OR_CHARACTER;
-    }
-    const response = await fetch('https://scribber.onrender.com/api/send-images-email', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(emailPayload)
+    const response = await fetch('https://scribber.onrender.com/api/download-images', {
+      method: 'GET'
     });
-    const result = await response.json();
-    document.getElementById('loading').style.display = 'none';
-    if (result.error) {
-      alert('Failed to send email: ' + result.error);
-    } else {
-      alert('Images sent to ' + email);
+    if (!response.ok) {
+      const error = await response.json();
+      alert('Failed to download: ' + (error.error || 'Unknown error'));
+      return;
     }
+    const blob = await response.blob();
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'story_images.zip';
+    document.body.appendChild(link);
+    link.click();
+    window.URL.revokeObjectURL(url);
+    document.body.removeChild(link);
   } catch (err) {
-    document.getElementById('loading').style.display = 'none';
-    alert('Failed to send email: ' + err.message);
+    alert('Failed to download: ' + err.message);
   }
 });
 
