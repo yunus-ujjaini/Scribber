@@ -68,18 +68,24 @@ async function generateStoryWithFallback(prompt) {
       const errorCode = error.status || error.code;
       const errorMessage = error.message || 'Unknown error';
       console.warn(`[story-generation] Model '${model}' failed: [${errorCode}] ${errorMessage}`);
-      
-      // Only retry on rate limit or overload errors, not on authentication errors
+
+      // Skip unsupported models
+      if (errorCode === 'NOT_FOUND' || errorCode === 404) {
+        console.log(`[story-generation] Skipping unsupported model: ${model}`);
+        continue;
+      }
+
+      // Retry on rate limit or overload errors
       if (errorCode === 'RESOURCE_EXHAUSTED' || errorCode === 429 || errorCode === 'UNAVAILABLE' || errorCode === 503) {
         console.log(`[story-generation] Retrying with next model...`);
         continue;
-      } else {
-        // Don't retry on auth errors, quota errors that aren't rate limits, etc.
-        throw error;
       }
+
+      // Don't retry on other errors
+      throw error;
     }
   }
-  
+
   // All models failed
   console.error(`[story-generation] All models exhausted or failed`);
   throw lastError || new Error('All Gemini models failed to generate content');
